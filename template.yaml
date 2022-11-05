@@ -1,0 +1,331 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  task-manager-api-sam
+
+  Sample SAM Template for task-manager-api-sam
+
+Globals:
+  Function:
+    Timeout: 3
+    Runtime: nodejs16.x
+    Architectures:
+      - x86_64
+
+Parameters:
+  APIStageName:
+    Description: StageName of API Gateway deployment
+    Type: String
+
+Resources:
+  #  Api Gateway
+  TaskManagerApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref APIStageName
+      Cors: "'*'"
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt "UserPool.Arn"
+      Models:
+        Task:
+          type: object
+          required:
+            - description
+            - completed
+          properties:
+            description:
+              type: string
+            completed:
+              type: boolean
+        User:
+          type: object
+          required:
+            - email
+            - password
+            - name
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+            name:
+              type: string
+
+  #  Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: TasksManagerUserPool
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+      Schema:
+        - AttributeDataType: String
+          Name: email
+          Required: true
+        - AttributeDataType: String
+          Name: name
+          Required: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: TasksManagerUserPoolClient
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  #  Lambda Functions
+  SignUpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/auth
+      Handler: sign-up.lambdaHandler
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /sign-up
+            Method: post
+            RequestModel:
+              Model: User
+              Required: true
+              ValidateBody: true
+      Environment:
+        Variables:
+          APP_AWS_REGION: eu-west-2
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - sign-up.ts
+  SignInFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/auth
+      Handler: sign-in.lambdaHandler
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /sign-in
+            Method: post
+      Environment:
+        Variables:
+          APP_AWS_REGION: eu-west-2
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - sign-in.ts
+  ConfirmEmailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/auth
+      Handler: confirm-email.lambdaHandler
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /confirm-email
+            Method: post
+      Environment:
+        Variables:
+          APP_AWS_REGION: eu-west-2
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - confirm-email.ts
+  GetCurrentUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/auth
+      Handler: get-current-user.lambdaHandler
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /users/me
+            Method: get
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - get-current-user.ts
+  PostTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/tasks
+      Handler: create-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Tasks
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /tasks
+            Method: post
+            Auth:
+              Authorizer: CognitoAuthorizer
+            RequestModel:
+              Model: Task
+              Required: true
+              ValidateBody: true
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - create-task.ts
+  GetAllTasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/tasks
+      Handler: get-all-tasks.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Tasks
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /tasks
+            Method: get
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - get-all-tasks.ts
+  GetSingleTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/tasks
+      Handler: get-single-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Tasks
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /tasks/{taskId}
+            Method: get
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - get-single-task.ts
+  UpdateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/tasks
+      Handler: update-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Tasks
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /tasks/{taskId}
+            Method: put
+            Auth:
+              Authorizer: CognitoAuthorizer
+            RequestModel:
+              Model: Task
+              Required: true
+              ValidateBody: true
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - update-task.ts
+  DeleteTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/tasks
+      Handler: delete-task.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Tasks
+      Events:
+        TaskManagerApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagerApi
+            Path: /tasks/{taskId}
+            Method: delete
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        EntryPoints:
+          - delete-task.ts
+  #  DynamoDB Tables
+  TasksTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: Tasks
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+      AttributeDefinitions:
+        - AttributeName: Owner
+          AttributeType: S
+        - AttributeName: Id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: Owner
+          KeyType: HASH
+        - AttributeName: Id
+          KeyType: RANGE
+
+Outputs:
+  TaskManagerApi:
+    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+    Value: !Sub "https://${TaskManagerApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"
